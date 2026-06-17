@@ -70,6 +70,99 @@ async def fetch_raw(client: httpx.AsyncClient, headers: dict, path: str, sha: st
     return text
 
 
+async def fetch_name_mapping(client: httpx.AsyncClient) -> dict:
+    """
+    Fetches story_review_table.json and chapter_table.json to build
+    a mapping from story file path to {display_name, stage_code}.
+    """
+    import re
+    mapping = {}
+
+    # ── Activity / event stories ──
+    try:
+        url = f'https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/{BRANCH}/kr/gamedata/excel/story_review_table.json'
+        r = await client.get(url, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        for act_id, act_data in data.items():
+            act_name = act_data.get('name', '')
+            for entry in act_data.get('infoUnlockDatas', []):
+                story_id = entry.get('storyId', '')
+                story_name = entry.get('storyName', '')
+                stage_code = entry.get('storyCode', '')
+                if not story_id or not story_name:
+                    continue
+                # storyId: "{actId}_{filename_no_ext}" or "{actId}_ui_{...}"
+                prefix = act_id + '_'
+                if story_id.startswith(prefix):
+                    filename = story_id[len(prefix):] + '.txt'
+                    path = f'{STORY_PATH}/activities/{act_id}/{filename}'
+                    mapping[path] = {
+                        'display_name': f'[{stage_code}] {story_name}' if stage_code else story_name,
+                        'stage_code': stage_code or act_name,
+                    }
+        print(f'  Name mapping: {len(mapping)} activity stories')
+    except Exception as e:
+        print(f'  Warning: could not fetch story_review_table: {e}')
+
+    # ── Main story: derive human-readable names from file name ──
+    # level_main_00-01_beg → "0-1 시작", level_main_10-15_end → "10-15 종료"
+    # These are added on-the-fly in _make_display_name below
+
+    # ── Chapter names for main story context ──
+    try:
+        url = f'https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/{BRANCH}/kr/gamedata/excel/chapter_table.json'
+        r = await client.get(url, timeout=30)
+        r.raise_for_status()
+        chapters = r.json()
+        # Store for use in main story name generation
+        mapping['__chapters__'] = {
+            v.get('chapterIndex', 0): v.get('chapterName', '')
+            for v in chapters.values() if isinstance(v, dict)
+        }
+    except Exception as e:
+        print(f'  Warning: could not fetch chapter_table: {e}')
+
+    return mapping
+
+
+def _make_display_name(path: str, mapping: dict) -> tuple[str | None, str | None]:
+    """Derive display_name and stage_code for a story file path."""
+    import re
+
+    # Check activity mapping first
+    if path in mapping:
+        m = mapping[path]
+        return m['display_name'], m['stage_code']
+
+    filename = path.split('/')[-1].replace('.txt', '')
+
+    # Main story: level_main_XX-YY_beg / _end
+    m = re.match(r'level_main_(\d+)-(\d+)(?:_(\w+))?', filename)
+    if m:
+        chapter_num = int(m.group(1))
+        stage_num = int(m.group(2))
+        suffix_raw = m.group(3) or ''
+        suffix_map = {'beg': '시작', 'end': '종료', 'st': ''}
+        suffix = suffix_map.get(suffix_raw, suffix_raw)
+
+        chapters = mapping.get('__chapters__', {})
+        chapter_name = chapters.get(chapter_num // 4, '')  # rough mapping
+
+        code = f'{chapter_num}-{stage_num}'
+        name = f'{code} {suffix}'.strip()
+        if chapter_name:
+            name = f'{chapter_name} {name}'
+        return name, code
+
+    # Other obt stories: clean up filename
+    # level_act2mainss_01_beg → "act2mainss 01 시작"
+    clean = re.sub(r'^level_', '', filename)
+    clean = re.sub(r'_(beg|end)$', lambda x: ' ' + ('시작' if x.group(1) == 'beg' else '종료'), clean)
+    clean = clean.replace('_', ' ')
+    return clean if clean != filename else None, None
+
+
 async def ingest(token: str | None = None, limit: int | None = None):
     conn = db.get_conn()
     db.init_db(conn)
@@ -78,6 +171,9 @@ async def ingest(token: str | None = None, limit: int | None = None):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     async with httpx.AsyncClient() as client:
+        print('Fetching name mapping...')
+        name_mapping = await fetch_name_mapping(client)
+
         print('Fetching file tree from GitHub...')
         files = await list_tree(client, headers)
         print(f'Found {len(files)} story files.')
@@ -99,7 +195,11 @@ async def ingest(token: str | None = None, limit: int | None = None):
                     scenes = parse_story(raw)
                     title = extract_title(raw, path)
                     category = path_to_category(path)
-                    changed = db.upsert_story(conn, path, title, category, raw, sha, scenes)
+                    display_name, stage_code = _make_display_name(path, name_mapping)
+                    changed = db.upsert_story(
+                        conn, path, title, category, raw, sha, scenes,
+                        display_name=display_name, stage_code=stage_code
+                    )
                     total += 1
                     if changed:
                         updated += 1
@@ -111,6 +211,26 @@ async def ingest(token: str | None = None, limit: int | None = None):
         await asyncio.gather(*tasks)
 
     print(f'\nDone. {total} files processed, {updated} updated.')
+
+
+async def update_names_only():
+    """Fetch name mapping and apply to existing DB entries without re-downloading stories."""
+    conn = db.get_conn()
+    db.init_db(conn)
+    async with httpx.AsyncClient() as client:
+        print('Fetching name mapping...')
+        name_mapping = await fetch_name_mapping(client)
+
+    rows = conn.execute('SELECT path FROM stories').fetchall()
+    mapping = {}
+    for row in rows:
+        path = row['path']
+        display_name, stage_code = _make_display_name(path, name_mapping)
+        if display_name or stage_code:
+            mapping[path] = {'display_name': display_name, 'stage_code': stage_code}
+
+    db.update_display_names(conn, mapping)
+    print(f'Updated names for {len(mapping)} stories.')
 
 
 async def build_embeddings():
@@ -148,9 +268,13 @@ if __name__ == '__main__':
     parser.add_argument('--token', default=os.environ.get('GITHUB_TOKEN'))
     parser.add_argument('--limit', type=int, default=None, help='Limit number of files for testing')
     parser.add_argument('--embeddings-only', action='store_true')
+    parser.add_argument('--names-only', action='store_true', help='Update display names without re-fetching stories')
     args = parser.parse_args()
 
-    if not args.embeddings_only:
+    if args.names_only:
+        asyncio.run(update_names_only())
+    elif not args.embeddings_only:
         asyncio.run(ingest(token=args.token, limit=args.limit))
-
-    asyncio.run(build_embeddings())
+        asyncio.run(build_embeddings())
+    else:
+        asyncio.run(build_embeddings())

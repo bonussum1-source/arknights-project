@@ -462,8 +462,9 @@ function renderTree(tree, filter='') {
     <div class="category-items" id="${catId}">`;
     for (const s of items) {
       const active = s.path === currentPath ? ' active' : '';
+      const label = s.display_name || s.title || s.path.split('/').pop().replace('.txt','');
       html += `<div class="story-item${active}" data-path="${esc(s.path)}" onclick="loadStory('${s.path.replace(/'/g,"\\'")}')">
-        ${esc(s.title || s.path.split('/').pop())}
+        ${esc(label)}
       </div>`;
     }
     html += '</div>';
@@ -508,7 +509,8 @@ function renderStory(d) {
   const story = d.story;
   const scenes = d.scenes;
 
-  document.getElementById('story-title').textContent = story.title || story.path.split('/').pop();
+  const displayTitle = story.display_name || story.title || story.path.split('/').pop().replace('.txt','');
+  document.getElementById('story-title').textContent = displayTitle;
   document.getElementById('story-meta').textContent =
     `${story.path} · ${scenes.length}개 장면`;
 
@@ -573,7 +575,7 @@ function renderResults(d) {
 
   let html = '';
   for (const r of results) {
-    const title = r.title || r.story_path.split('/').pop();
+    const title = r.display_name || r.title || r.story_path.split('/').pop().replace('.txt','');
     const snippet = r.snippet || r.text;
     const score = r.score != null ? `<span class="score-badge">${(r.score*100).toFixed(0)}%</span>` : '';
     const speaker = r.speaker ? `<div class="result-speaker">${esc(r.speaker)}</div>` : '';

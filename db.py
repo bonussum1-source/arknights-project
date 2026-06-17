@@ -20,6 +20,8 @@ def init_db(conn: sqlite3.Connection):
         CREATE TABLE IF NOT EXISTS stories (
             path TEXT PRIMARY KEY,
             title TEXT,
+            display_name TEXT,
+            stage_code TEXT,
             category TEXT,
             raw_text TEXT,
             sha TEXT,
@@ -57,10 +59,17 @@ def init_db(conn: sqlite3.Connection):
             VALUES ('delete', old.id, old.text, old.speaker, old.story_path);
         END;
     ''')
+    # Migration: add columns if they don't exist yet
+    for col in ('display_name TEXT', 'stage_code TEXT'):
+        try:
+            conn.execute(f'ALTER TABLE stories ADD COLUMN {col}')
+        except Exception:
+            pass
     conn.commit()
 
 
-def upsert_story(conn, path: str, title: str, category: str, raw_text: str, sha: str, scenes: list[dict]):
+def upsert_story(conn, path: str, title: str, category: str, raw_text: str, sha: str, scenes: list[dict],
+                 display_name: str = None, stage_code: str = None):
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
 
@@ -70,9 +79,9 @@ def upsert_story(conn, path: str, title: str, category: str, raw_text: str, sha:
 
     conn.execute('DELETE FROM scenes WHERE story_path=?', (path,))
     conn.execute('''
-        INSERT OR REPLACE INTO stories(path, title, category, raw_text, sha, fetched_at)
-        VALUES (?,?,?,?,?,?)
-    ''', (path, title, category, raw_text, sha, now))
+        INSERT OR REPLACE INTO stories(path, title, display_name, stage_code, category, raw_text, sha, fetched_at)
+        VALUES (?,?,?,?,?,?,?,?)
+    ''', (path, title, display_name, stage_code, category, raw_text, sha, now))
 
     for i, s in enumerate(scenes):
         conn.execute('''
@@ -90,9 +99,19 @@ def _natural_sort_key(path: str) -> list:
     return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', path)]
 
 
+def update_display_names(conn, mapping: dict):
+    """mapping: {path: {display_name, stage_code}}"""
+    for path, info in mapping.items():
+        conn.execute(
+            'UPDATE stories SET display_name=?, stage_code=? WHERE path=?',
+            (info.get('display_name'), info.get('stage_code'), path)
+        )
+    conn.commit()
+
+
 def get_story_tree(conn) -> list[dict]:
     rows = conn.execute(
-        'SELECT path, title, category FROM stories'
+        'SELECT path, title, display_name, stage_code, category FROM stories'
     ).fetchall()
     result = [dict(r) for r in rows]
     result.sort(key=lambda r: _natural_sort_key(r['path']))
@@ -113,7 +132,7 @@ def get_story(conn, path: str) -> dict | None:
 def fts_search(conn, query: str, limit: int = 50) -> list[dict]:
     rows = conn.execute('''
         SELECT s.id, s.story_path, s.type, s.speaker, s.text, s.background,
-               st.title, st.category,
+               st.title, st.display_name, st.stage_code, st.category,
                snippet(scenes_fts, 0, '<mark>', '</mark>', '…', 20) AS snippet
         FROM scenes_fts f
         JOIN scenes s ON s.id = f.rowid
@@ -174,7 +193,7 @@ def get_scenes_by_ids(conn, ids: list[int]) -> list[dict]:
     placeholders = ','.join('?' * len(ids))
     rows = conn.execute(f'''
         SELECT s.id, s.story_path, s.type, s.speaker, s.text, s.background,
-               st.title, st.category
+               st.title, st.display_name, st.stage_code, st.category
         FROM scenes s
         JOIN stories st ON st.path = s.story_path
         WHERE s.id IN ({placeholders})
