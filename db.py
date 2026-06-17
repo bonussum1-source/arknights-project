@@ -84,11 +84,19 @@ def upsert_story(conn, path: str, title: str, category: str, raw_text: str, sha:
     return True
 
 
+def _natural_sort_key(path: str) -> list:
+    """Split path into alternating string/int parts for natural sort."""
+    import re
+    return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', path)]
+
+
 def get_story_tree(conn) -> list[dict]:
     rows = conn.execute(
-        'SELECT path, title, category FROM stories ORDER BY path'
+        'SELECT path, title, category FROM stories'
     ).fetchall()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    result.sort(key=lambda r: _natural_sort_key(r['path']))
+    return result
 
 
 def get_story(conn, path: str) -> dict | None:

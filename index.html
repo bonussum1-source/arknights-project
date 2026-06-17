@@ -429,6 +429,18 @@ async function loadTree() {
   } catch(e) {}
 }
 
+function naturalCmp(a, b) {
+  const re = /(\d+)|(\D+)/g;
+  const pa = a.match(re) || [], pb = b.match(re) || [];
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const ca = pa[i] || '', cb = pb[i] || '';
+    const na = parseInt(ca), nb = parseInt(cb);
+    if (!isNaN(na) && !isNaN(nb)) { if (na !== nb) return na - nb; }
+    else { const r = ca.localeCompare(cb); if (r !== 0) return r; }
+  }
+  return 0;
+}
+
 function renderTree(tree, filter='') {
   const el = document.getElementById('tree');
   if (!Object.keys(tree).length) {
@@ -437,7 +449,7 @@ function renderTree(tree, filter='') {
   }
   const f = filter.toLowerCase();
   let html = '';
-  const sorted = Object.keys(tree).sort();
+  const sorted = Object.keys(tree).sort(naturalCmp);
   for (const cat of sorted) {
     const items = tree[cat].filter(s =>
       !f || cat.toLowerCase().includes(f) || s.title.toLowerCase().includes(f) || s.path.toLowerCase().includes(f)
