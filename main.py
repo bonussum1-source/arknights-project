@@ -1,3 +1,6 @@
+import os
+os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 import numpy as np
