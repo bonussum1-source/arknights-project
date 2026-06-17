@@ -72,10 +72,11 @@ async def fetch_raw(client: httpx.AsyncClient, headers: dict, path: str, sha: st
 
 async def fetch_name_mapping(client: httpx.AsyncClient) -> dict:
     """
-    Fetches story_review_table.json and chapter_table.json to build
-    a mapping from story file path to {display_name, stage_code}.
+    Fetches story_review_table.json and chapter_table.json.
+    Returns mapping keyed by FILENAME STEM (no extension, no path)
+    so it works regardless of folder structure differences.
+    e.g. "level_a001_01_beg" -> {display_name, stage_code}
     """
-    import re
     mapping = {}
 
     # ── Activity / event stories ──
@@ -92,22 +93,17 @@ async def fetch_name_mapping(client: httpx.AsyncClient) -> dict:
                 stage_code = entry.get('storyCode', '')
                 if not story_id or not story_name:
                     continue
-                # storyId: "{actId}_{filename_no_ext}" or "{actId}_ui_{...}"
+                # storyId: "{actId}_{filename_stem}"
+                # Key by filename stem so path format doesn't matter
                 prefix = act_id + '_'
-                if story_id.startswith(prefix):
-                    filename = story_id[len(prefix):] + '.txt'
-                    path = f'{STORY_PATH}/activities/{act_id}/{filename}'
-                    mapping[path] = {
-                        'display_name': f'[{stage_code}] {story_name}' if stage_code else story_name,
-                        'stage_code': stage_code or act_name,
-                    }
+                stem = story_id[len(prefix):] if story_id.startswith(prefix) else story_id
+                mapping[stem] = {
+                    'display_name': f'[{stage_code}] {story_name}' if stage_code else story_name,
+                    'stage_code': stage_code or act_name,
+                }
         print(f'  Name mapping: {len(mapping)} activity stories')
     except Exception as e:
         print(f'  Warning: could not fetch story_review_table: {e}')
-
-    # ── Main story: derive human-readable names from file name ──
-    # level_main_00-01_beg → "0-1 시작", level_main_10-15_end → "10-15 종료"
-    # These are added on-the-fly in _make_display_name below
 
     # ── Chapter names for main story context ──
     try:
@@ -115,7 +111,6 @@ async def fetch_name_mapping(client: httpx.AsyncClient) -> dict:
         r = await client.get(url, timeout=30)
         r.raise_for_status()
         chapters = r.json()
-        # Store for use in main story name generation
         mapping['__chapters__'] = {
             v.get('chapterIndex', 0): v.get('chapterName', '')
             for v in chapters.values() if isinstance(v, dict)
@@ -130,12 +125,12 @@ def _make_display_name(path: str, mapping: dict) -> tuple[str | None, str | None
     """Derive display_name and stage_code for a story file path."""
     import re
 
-    # Check activity mapping first
-    if path in mapping:
-        m = mapping[path]
-        return m['display_name'], m['stage_code']
-
     filename = path.split('/')[-1].replace('.txt', '')
+
+    # Check activity mapping by filename stem (path-independent)
+    if filename in mapping:
+        m = mapping[filename]
+        return m['display_name'], m['stage_code']
 
     # Main story: level_main_XX-YY_beg / _end
     m = re.match(r'level_main_(\d+)-(\d+)(?:_(\w+))?', filename)
