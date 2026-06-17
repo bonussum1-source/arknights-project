@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>명일방주 스토리 뷰어</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --accent: #4fc3f7;
+    --accent2: #ff6b35;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --dialogue-bg: #1a2030;
+    --narration-bg: #12181f;
+    --mark: #ff6b3540;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  header h1 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .search-bar {
+    flex: 1;
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+  }
+  .search-bar input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 14px;
+    min-width: 0;
+  }
+  .search-bar input:focus { outline: none; border-color: var(--accent); }
+  .search-bar input::placeholder { color: var(--text2); }
+  .btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text2);
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn:hover, .btn.active { border-color: var(--accent); color: var(--accent); }
+  .btn-icon { padding: 6px 8px; font-size: 16px; border: none; }
+  #menu-btn { display: none; }
+
+  /* ── Layout ── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-header {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .sidebar-filter {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-filter input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    padding: 5px 8px;
+    font-size: 13px;
+  }
+  .sidebar-filter input:focus { outline: none; border-color: var(--accent); }
+  #tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+  }
+  .category {
+    padding: 6px 14px 2px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    user-select: none;
+  }
+  .category .arrow { transition: transform 0.15s; font-size: 10px; }
+  .category.collapsed .arrow { transform: rotate(-90deg); }
+  .category-items { }
+  .category-items.hidden { display: none; }
+  .story-item {
+    padding: 5px 14px 5px 24px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text2);
+    border-left: 2px solid transparent;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background 0.1s, color 0.1s;
+  }
+  .story-item:hover { background: var(--surface2); color: var(--text); }
+  .story-item.active {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  /* ── Content Area ── */
+  #content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  /* ── Empty state ── */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text2);
+    gap: 12px;
+    padding: 40px;
+    text-align: center;
+  }
+  .empty-state .icon { font-size: 48px; opacity: 0.4; }
+  .empty-state p { font-size: 15px; }
+  .empty-state small { font-size: 12px; opacity: 0.6; }
+
+  /* ── Story reader ── */
+  #reader { display: none; flex-direction: column; flex: 1; }
+  .story-title-bar {
+    padding: 14px 20px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .story-title-bar h2 { font-size: 16px; font-weight: 700; }
+  .story-title-bar .meta { font-size: 12px; color: var(--text2); margin-top: 3px; }
+  .scenes {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .scene {
+    max-width: 680px;
+    width: 100%;
+  }
+  .scene.dialogue {
+    background: var(--dialogue-bg);
+    border-radius: 8px;
+    padding: 10px 14px;
+    border-left: 3px solid var(--accent);
+  }
+  .scene.narration {
+    padding: 4px 6px;
+    color: var(--text2);
+    font-style: italic;
+    font-size: 14px;
+    border-left: 3px solid var(--border);
+    padding-left: 12px;
+  }
+  .scene.decision {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    border-left: 3px solid var(--accent2);
+    color: var(--accent2);
+    font-size: 13px;
+  }
+  .speaker {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+  .scene-text { font-size: 14px; line-height: 1.6; }
+
+  /* ── Search results ── */
+  #search-results { display: none; flex: 1; flex-direction: column; }
+  .results-header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 13px;
+    color: var(--text2);
+    flex-shrink: 0;
+  }
+  .results-header strong { color: var(--text); }
+  .results-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .result-card:hover { border-color: var(--accent); }
+  .result-source {
+    font-size: 11px;
+    color: var(--accent2);
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .result-speaker { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 3px; }
+  .result-text { font-size: 14px; line-height: 1.5; }
+  mark { background: var(--mark); color: var(--accent2); border-radius: 2px; padding: 0 1px; }
+  .score-badge {
+    font-size: 10px;
+    background: var(--surface2);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--text2);
+  }
+
+  /* ── Status bar ── */
+  #statusbar {
+    padding: 5px 16px;
+    font-size: 11px;
+    color: var(--text2);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  #statusbar span { display: flex; align-items: center; gap: 4px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+  .dot.ok { background: #3fb950; }
+  .dot.warn { background: var(--accent2); }
+
+  /* ── Mobile ── */
+  @media (max-width: 640px) {
+    #menu-btn { display: block; }
+    #sidebar {
+      position: fixed;
+      left: 0; top: 0; bottom: 0;
+      z-index: 100;
+      transform: translateX(-100%);
+      transition: transform 0.25s;
+      width: 85vw;
+    }
+    #sidebar.open { transform: translateX(0); box-shadow: 4px 0 20px #00000080; }
+    .overlay {
+      position: fixed; inset: 0; background: #00000060; z-index: 99;
+      display: none;
+    }
+    .overlay.show { display: block; }
+  }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="btn btn-icon" id="menu-btn" onclick="toggleSidebar()" title="메뉴">☰</button>
+  <h1>명일방주 스토리</h1>
+  <div class="search-bar">
+    <input type="search" id="search-input" placeholder="검색..." autocomplete="off"
+           onkeydown="if(event.key==='Enter')doSearch()">
+    <button class="btn" id="mode-btn" onclick="toggleSearchMode()" title="검색 모드 전환">텍스트</button>
+    <button class="btn" onclick="doSearch()">검색</button>
+  </div>
+</header>
+
+<div class="main">
+  <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <span>스토리 목록</span>
+      <span id="story-count" style="font-weight:400"></span>
+    </div>
+    <div class="sidebar-filter">
+      <input type="search" id="tree-filter" placeholder="카테고리/제목 필터..." oninput="filterTree(this.value)">
+    </div>
+    <div id="tree"><div class="empty-state"><p>데이터 없음</p><small>ingest.py를 먼저 실행하세요</small></div></div>
+  </aside>
+
+  <div id="content">
+    <div class="empty-state" id="welcome">
+      <div class="icon">📖</div>
+      <p>왼쪽에서 스토리를 선택하거나 검색하세요</p>
+      <small id="status-hint">데이터베이스 로딩 중...</small>
+    </div>
+
+    <div id="reader">
+      <div class="story-title-bar">
+        <h2 id="story-title"></h2>
+        <div class="meta" id="story-meta"></div>
+      </div>
+      <div class="scenes" id="scenes"></div>
+    </div>
+
+    <div id="search-results">
+      <div class="results-header" id="results-header"></div>
+      <div class="results-list" id="results-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="statusbar">
+  <span><span class="dot" id="db-dot"></span><span id="db-status">연결 중...</span></span>
+  <span id="emb-status"></span>
+</div>
+
+<script>
+let searchMode = 'text';
+let treeData = {};
+let currentPath = '';
+
+// ── Utilities ──
+function show(id) {
+  ['welcome','reader','search-results'].forEach(x => {
+    const el = document.getElementById(x);
+    if (el) el.style.display = x === id ? (x === 'welcome' ? 'flex' : 'flex') : 'none';
+  });
+}
+
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Status ──
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    document.getElementById('db-dot').className = 'dot ok';
+    document.getElementById('db-status').textContent = `스토리 ${d.stories}편 · 장면 ${d.scenes}개`;
+    document.getElementById('story-count').textContent = d.stories;
+    if (d.embeddings > 0) {
+      document.getElementById('emb-status').textContent = `임베딩 ${d.embeddings}개`;
+    }
+    document.getElementById('status-hint').textContent =
+      `${d.stories}편의 스토리가 있습니다. 검색하거나 목록에서 선택하세요.`;
+  } catch(e) {
+    document.getElementById('db-dot').className = 'dot warn';
+    document.getElementById('db-status').textContent = '서버 연결 실패';
+    document.getElementById('status-hint').textContent = 'main.py 서버가 실행 중인지 확인하세요.';
+  }
+}
+
+// ── Tree ──
+async function loadTree() {
+  try {
+    const r = await fetch('/api/tree');
+    const d = await r.json();
+    treeData = d.tree;
+    renderTree(treeData);
+  } catch(e) {}
+}
+
+function renderTree(tree, filter='') {
+  const el = document.getElementById('tree');
+  if (!Object.keys(tree).length) {
+    el.innerHTML = '<div class="empty-state"><p>데이터 없음</p><small>ingest.py를 먼저 실행하세요</small></div>';
+    return;
+  }
+  const f = filter.toLowerCase();
+  let html = '';
+  const sorted = Object.keys(tree).sort();
+  for (const cat of sorted) {
+    const items = tree[cat].filter(s =>
+      !f || cat.toLowerCase().includes(f) || s.title.toLowerCase().includes(f) || s.path.toLowerCase().includes(f)
+    );
+    if (!items.length) continue;
+    const catId = 'cat-' + cat.replace(/[^a-z0-9]/gi, '_');
+    html += `<div class="category" onclick="toggleCat('${catId}')">
+      <span class="arrow">▾</span>${esc(cat)} <span style="color:var(--border);font-size:10px">(${items.length})</span>
+    </div>
+    <div class="category-items" id="${catId}">`;
+    for (const s of items) {
+      const active = s.path === currentPath ? ' active' : '';
+      html += `<div class="story-item${active}" data-path="${esc(s.path)}" onclick="loadStory('${s.path.replace(/'/g,"\\'")}')">
+        ${esc(s.title || s.path.split('/').pop())}
+      </div>`;
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html || '<div class="empty-state"><p>검색 결과 없음</p></div>';
+}
+
+function filterTree(val) { renderTree(treeData, val); }
+
+function toggleCat(id) {
+  const el = document.getElementById(id);
+  el.classList.toggle('hidden');
+  const hdr = el.previousElementSibling;
+  hdr.classList.toggle('collapsed');
+}
+
+// ── Story Reader ──
+async function loadStory(path) {
+  currentPath = path;
+  closeSidebarOnMobile();
+
+  // Update active state
+  document.querySelectorAll('.story-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.path === path);
+  });
+
+  show('reader');
+  document.getElementById('scenes').innerHTML = '<div style="padding:20px;color:var(--text2)">로딩 중...</div>';
+
+  try {
+    const r = await fetch('/api/story?' + new URLSearchParams({path}));
+    const d = await r.json();
+    renderStory(d);
+    // Update URL hash
+    location.hash = encodeURIComponent(path);
+  } catch(e) {
+    document.getElementById('scenes').innerHTML = `<div style="padding:20px;color:var(--accent2)">오류: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderStory(d) {
+  const story = d.story;
+  const scenes = d.scenes;
+
+  document.getElementById('story-title').textContent = story.title || story.path.split('/').pop();
+  document.getElementById('story-meta').textContent =
+    `${story.path} · ${scenes.length}개 장면`;
+
+  let html = '';
+  for (const s of scenes) {
+    if (s.type === 'dialogue') {
+      html += `<div class="scene dialogue">
+        <div class="speaker">${esc(s.speaker)}</div>
+        <div class="scene-text">${esc(s.text)}</div>
+      </div>`;
+    } else if (s.type === 'decision') {
+      html += `<div class="scene decision"><div class="scene-text">${esc(s.text)}</div></div>`;
+    } else {
+      html += `<div class="scene narration"><div class="scene-text">${esc(s.text)}</div></div>`;
+    }
+  }
+
+  document.getElementById('scenes').innerHTML = html || '<div style="padding:20px;color:var(--text2)">장면 없음</div>';
+}
+
+// ── Search ──
+function toggleSearchMode() {
+  searchMode = searchMode === 'text' ? 'semantic' : 'text';
+  const btn = document.getElementById('mode-btn');
+  btn.textContent = searchMode === 'text' ? '텍스트' : '의미';
+  btn.classList.toggle('active', searchMode === 'semantic');
+}
+
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+
+  closeSidebarOnMobile();
+  show('search-results');
+  document.getElementById('results-list').innerHTML = '<div style="padding:20px;color:var(--text2)">검색 중...</div>';
+
+  try {
+    const r = await fetch('/api/search?' + new URLSearchParams({q, mode: searchMode, limit: 50}));
+    if (!r.ok) {
+      const err = await r.json();
+      throw new Error(err.detail || r.statusText);
+    }
+    const d = await r.json();
+    renderResults(d);
+  } catch(e) {
+    document.getElementById('results-list').innerHTML =
+      `<div style="padding:20px;color:var(--accent2)">오류: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderResults(d) {
+  const results = d.results;
+  const modeLabel = d.mode === 'text' ? '텍스트 검색' : '의미 검색';
+  document.getElementById('results-header').innerHTML =
+    `<strong>"${esc(d.query)}"</strong> — ${modeLabel} 결과 ${results.length}개`;
+
+  if (!results.length) {
+    document.getElementById('results-list').innerHTML =
+      '<div style="padding:20px;color:var(--text2)">결과 없음</div>';
+    return;
+  }
+
+  let html = '';
+  for (const r of results) {
+    const title = r.title || r.story_path.split('/').pop();
+    const snippet = r.snippet || r.text;
+    const score = r.score != null ? `<span class="score-badge">${(r.score*100).toFixed(0)}%</span>` : '';
+    const speaker = r.speaker ? `<div class="result-speaker">${esc(r.speaker)}</div>` : '';
+    html += `<div class="result-card" onclick="loadStory('${r.story_path.replace(/'/g,"\\'")}')">
+      <div class="result-source">
+        <span>📄 ${esc(r.category || '')} / ${esc(title)}</span>
+        ${score}
+      </div>
+      ${speaker}
+      <div class="result-text">${snippet}</div>
+    </div>`;
+  }
+
+  document.getElementById('results-list').innerHTML = html;
+}
+
+// ── Mobile sidebar ──
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('show');
+}
+
+function closeSidebarOnMobile() {
+  if (window.innerWidth <= 640) {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+  }
+}
+
+// ── Hash-based navigation ──
+function handleHash() {
+  const h = location.hash.slice(1);
+  if (h) loadStory(decodeURIComponent(h));
+}
+
+// ── Init ──
+window.addEventListener('load', async () => {
+  await Promise.all([loadStatus(), loadTree()]);
+  handleHash();
+});
+window.addEventListener('hashchange', handleHash);
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+</script>
+</body>
+</html>
