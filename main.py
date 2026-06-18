@@ -55,7 +55,7 @@ async def api_tree():
         category = s['category']
         if category not in tree:
             tree[category] = []
-        tree[category].append({'path': s['path'], 'title': s['title']})
+        tree[category].append({'path': s['path'], 'title': s['title'], 'display_name': s['display_name'], 'stage_code': s['stage_code']})
     return {'tree': tree, 'total': len(stories)}
 
 
